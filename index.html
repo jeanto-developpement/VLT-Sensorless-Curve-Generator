@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flofab Inc. - Sensorless Curve Generator</title>
+<style>
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    padding:22px;
+    background:#ffffff;
+    font-family:"Segoe UI", Tahoma, Arial, sans-serif;
+    font-size:13px;
+    color:#1f1f1f;
+  }
+  h1{font-size:16px;font-weight:600;margin:0 0 4px;}
+  .sub{font-size:12px;color:#6b7076;margin-bottom:18px;}
+  .panel{border:1px solid #d8dadd;border-radius:4px;margin-bottom:18px;}
+  .panel-title{
+    font-size:12px;font-weight:600;color:#3a3f45;padding:9px 12px;
+    border-bottom:1px solid #e3e5e7;background:#f7f8f9;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .panel-body{padding:12px;}
+
+  .field-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+  .field-row label{font-size:12.5px;min-width:130px;}
+  .field-row input[type=text], .field-row input[type=number]{
+    font-family:inherit;font-size:13px;border:1px solid #c9ccd0;border-radius:3px;padding:5px 7px;
+  }
+
+  button{
+    font-family:inherit;font-size:12px;padding:6px 12px;border:1px solid #b8bcc2;
+    background:#f4f5f6;border-radius:3px;cursor:pointer;
+  }
+  button:hover{background:#e9eaec;}
+  button.primary{background:#2f5fd0;border-color:#2f5fd0;color:#fff;font-weight:600;}
+  button.primary:hover{background:#2650b3;}
+  button.danger{color:#d0432f;border-color:#e3b6ae;}
+  button.small{font-size:11px;padding:4px 9px;}
+
+  .quickrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+
+  table{border-collapse:collapse;width:100%;}
+  th, td{border:1px solid #d8dadd;padding:5px 9px;text-align:left;white-space:nowrap;}
+  th{background:#f7f8f9;font-weight:600;color:#333;font-size:12px;}
+
+  #basePoints td input{border:none;background:transparent;font-family:inherit;font-size:13px;width:80px;padding:2px;}
+  #basePoints td.flowcol input{color:#1f1f1f;}
+  #basePoints td.headcol input{color:#2f5fd0;}
+  #basePoints td.powcol input{color:#d0432f;}
+  #basePoints td input:focus{outline:1px solid #9db4e8;border-radius:2px;}
+
+  td.hzcell{vertical-align:middle;background:#fff;}
+  td.hzcell.overspeed{background:#fff3e0;}
+  td.rowtype.flow{color:#1f1f1f;}
+  td.rowtype.head{color:#2f5fd0;}
+  td.rowtype.power{color:#d0432f;}
+  td.rowtype.current{color:#1a8a5e;}
+  td.val.flow{color:#1f1f1f;}
+  td.val.head{color:#2f5fd0;}
+  td.val.power{color:#d0432f;}
+  td.val.current{color:#1a8a5e;}
+  td.val.current.overload{background:#fde4e1;font-weight:700;}
+  tr.group-start td{border-top:2px solid #b8bcc2;}
+
+  .status{font-size:12px;color:#6b7076;margin-top:6px;min-height:14px;}
+  .status.err{color:#d0432f;}
+  .flag{font-size:11px;color:#b9660a;margin-top:6px;}
+  .flag.danger{color:#d0432f;}
+
+  .empty{color:#8a8f95;font-size:12.5px;padding:6px 0;}
+
+  .motor-summary{
+    font-size:12px;color:#3a3f45;background:#f7f8f9;border:1px solid #e3e5e7;
+    border-radius:3px;padding:8px 10px;margin-top:8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Flofab Inc. - Sensorless Curve Generator</h1>
+<div class="sub">Load a base curve and motor nameplate, then scale to any target frequencies via affinity laws (Q∝N, Head∝N², Power∝N³) with a motor-current estimate at each point.</div>
+
+<div class="panel">
+  <div class="panel-title">MOTOR NAMEPLATE</div>
+  <div class="panel-body">
+    <div class="field-row">
+      <label>Rated Power (HP)</label>
+      <input type="number" id="mHp" step="0.1" style="width:90px;">
+      <label>Rated Voltage (V)</label>
+      <input type="number" id="mV" step="1" style="width:90px;">
+      <label>Rated Current (A)</label>
+      <input type="number" id="mA" step="0.1" style="width:90px;">
+      <label>Phase</label>
+      <select id="mPhase" style="font-family:inherit;font-size:13px;">
+        <option value="3">3-phase</option>
+        <option value="1">1-phase</option>
+      </select>
+    </div>
+    <div class="field-row">
+      <label>Rated Speed (RPM)</label>
+      <input type="number" id="mRpm" step="1" style="width:90px;">
+      <label>Rated Frequency (Hz)</label>
+      <input type="number" id="mHz" step="1" value="60" style="width:90px;">
+      <button class="small" onclick="useMotorHzAsBase()">Use as base freq →</button>
+    </div>
+    <div class="field-row">
+      <label>Rated Efficiency (%)</label>
+      <input type="number" id="mEff" step="0.1" style="width:90px;" placeholder="e.g. 93.6 (from nameplate)">
+    </div>
+    <div class="field-row">
+      <label>No-Load Current (A)</label>
+      <input type="number" id="mNoLoadA" step="0.1" style="width:90px;" placeholder="25-50% by size if blank">
+      <label>No-Load Power (kW)</label>
+      <input type="number" id="mNoLoadKw" step="0.01" style="width:90px;" placeholder="from efficiency, else V×I×PF">
+      <label>No-Load PF (cosφ₀)</label>
+      <input type="number" id="mNoLoadPF" step="0.01" min="0.1" max="0.2" style="width:70px;" placeholder="0.1–0.2, default 0.12">
+    </div>
+    <div class="field-row">
+      <button onclick="clearMotor()">Clear motor nameplate</button>
+    </div>
+    <div class="motor-summary" id="motorSummary">No motor loaded — current-estimate column will be omitted.</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">BASE CURVE INPUT</div>
+  <div class="panel-body">
+    <div class="field-row">
+      <label>Tag / Quote #</label>
+      <input type="text" id="tag" placeholder="e.g. 000000-0">
+    </div>
+
+    <div class="field-row">
+      <label>Base Frequency (Hz)</label>
+      <input type="number" id="baseFreq" value="60" step="1" style="width:80px;">
+    </div>
+
+    <table style="margin-bottom:10px;">
+      <thead>
+        <tr><th>Model</th><th>GPM</th><th>Head (ft)</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><input type="text" id="pModel" style="border:none;width:100%;font-family:inherit;font-size:13px;"></td>
+          <td><input type="text" id="pGpm" style="border:none;width:100%;font-family:inherit;font-size:13px;color:#1f1f1f;"></td>
+          <td><input type="text" id="pHeadFt" style="border:none;width:100%;font-family:inherit;font-size:13px;color:#2f5fd0;"></td>
+        </tr>
+      </tbody>
+      <thead>
+        <tr><th>Imp Diam</th><th>BHP</th><th>NOL</th><th>NPSHR</th><th>Efficiency</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><input type="text" id="pImpDiam" style="border:none;width:100%;font-family:inherit;font-size:13px;"></td>
+          <td><input type="text" id="pBhp" style="border:none;width:100%;font-family:inherit;font-size:13px;color:#d0432f;"></td>
+          <td><input type="text" id="pNol" style="border:none;width:100%;font-family:inherit;font-size:13px;"></td>
+          <td><input type="text" id="pNpshr" style="border:none;width:100%;font-family:inherit;font-size:13px;"></td>
+          <td><input type="text" id="pEff" style="border:none;width:100%;font-family:inherit;font-size:13px;"></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="field-row" style="margin-top:6px;">
+      <label>Shutoff Head Factor</label>
+      <input type="text" id="shutoffFactor" value="1.20" style="width:70px;">
+      <label>Runout Flow Factor (max 1.0)</label>
+      <input type="text" id="runoutFactor" value="1.00" style="width:70px;">
+    </div>
+    <div class="motor-summary" id="dutySummary"></div>
+
+    <div class="field-row">
+      <label>Target frequencies (Hz)</label>
+      <input type="text" id="targetFreqs" value="20,25,30,35,40,45,50,55,60" style="width:260px;">
+    </div>
+
+    <div class="field-row">
+      <button class="primary" onclick="generate()">Generate curve table</button>
+      <button onclick="clearAll()">Clear curve</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">GENERATED CURVE TABLE</div>
+  <div class="panel-body">
+    <div class="field-row">
+      <button onclick="exportCsv()">Export as CSV</button>
+    </div>
+    <div id="flags"></div>
+    <table id="curveTable">
+      <thead>
+        <tr>
+          <th style="width:70px;">Hz</th>
+          <th style="width:90px;">Row Type</th>
+          <th style="width:70px;">Unit</th>
+          <th id="colHeaders"></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"><tr><td colspan="4" class="empty">Enter a base curve above and click "Generate curve table".</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let pumpSheet = {
+  model:'', gpm:0, headFt:0,
+  impDiam:'', bhp:0, nol:'', npshr:'', eff:''
+};
+let generated = [];
+
+function readPumpSheet(){
+  pumpSheet = {
+    model:   document.getElementById('pModel').value,
+    gpm:     parseFloat(document.getElementById('pGpm').value)    || 0,
+    headFt:  parseFloat(document.getElementById('pHeadFt').value) || 0,
+    impDiam: document.getElementById('pImpDiam').value,
+    bhp:     parseFloat(document.getElementById('pBhp').value)    || 0,
+    nol:     document.getElementById('pNol').value,
+    npshr:   document.getElementById('pNpshr').value,
+    eff:     document.getElementById('pEff').value
+  };
+  return pumpSheet;
+}
+
+function readDutyPoint(){
+  readPumpSheet();
+  const headPsi = pumpSheet.headFt * 0.4331;
+  const powerKw = pumpSheet.bhp * 0.7457;
+  const nolKw = (parseFloat(pumpSheet.nol) || pumpSheet.bhp*1.1) * 0.7457;
+  const shutoffFactor = parseFloat(document.getElementById('shutoffFactor').value) || 1.20;
+  const runoutFactor  = Math.min(parseFloat(document.getElementById('runoutFactor').value) || 1.00, 1.00);
+  const el = document.getElementById('dutySummary');
+  if(el) el.textContent = pumpSheet.gpm || pumpSheet.headFt || pumpSheet.bhp
+    ? `Duty point: ${pumpSheet.gpm} GPM · ${headPsi.toFixed(2)} PSI · ${powerKw.toFixed(2)} kW — synthesized full curve runs 0 → ${(pumpSheet.gpm*runoutFactor).toFixed(0)} GPM, shutoff head ${(headPsi*shutoffFactor).toFixed(2)} PSI, runout power ${nolKw.toFixed(2)} kW`
+    : 'Fill in GPM, Head and BHP above to set the base curve.';
+  return { flow: pumpSheet.gpm, head: headPsi, power: powerKw, nolPower: nolKw, shutoffFactor, runoutFactor };
+}
+
+// Synthesizes a full 10-point curve (shutoff -> runout) at the base frequency
+// from a single duty point, using a parabolic head-flow model and piecewise-linear power.
+function computeBaseCurvePoints(){
+  const duty = readDutyPoint();
+  const Qd = duty.flow, Hd = duty.head, Pd = duty.power, Pnol = duty.nolPower;
+  const H0 = Hd * duty.shutoffFactor;
+  const Qmax = Qd * duty.runoutFactor;
+  const Pshutoff = Pd * 0.4; // assumed minimum power near shutoff
+
+  const flow = [], head = [], power = [];
+  const N = 10;
+  for(let i=0;i<N;i++){
+    const Q = Qmax * i/(N-1);
+    let H;
+    if(Qd > 0){
+      H = H0 - (H0 - Hd) * Math.pow(Q/Qd, 2);
+    } else {
+      H = H0;
+    }
+    H = Math.max(0, H);
+
+    let P;
+    if(Qd > 0 && Q <= Qd){
+      P = Pshutoff + (Pd - Pshutoff) * (Q/Qd);
+    } else if(Qmax > Qd){
+      P = Pd + (Pnol - Pd) * ((Q - Qd)/(Qmax - Qd));
+    } else {
+      P = Pd;
+    }
+
+    flow.push(+Q.toFixed(3));
+    head.push(+H.toFixed(3));
+    power.push(+P.toFixed(3));
+  }
+  return {flow, head, power};
+}
+
+function renderDutyPoint(){
+  document.getElementById('pModel').value   = pumpSheet.model;
+  document.getElementById('pGpm').value     = pumpSheet.gpm;
+  document.getElementById('pHeadFt').value  = pumpSheet.headFt;
+  document.getElementById('pImpDiam').value = pumpSheet.impDiam;
+  document.getElementById('pBhp').value     = pumpSheet.bhp;
+  document.getElementById('pNol').value     = pumpSheet.nol;
+  document.getElementById('pNpshr').value   = pumpSheet.npshr;
+  document.getElementById('pEff').value     = pumpSheet.eff;
+  readDutyPoint();
+}
+['pModel','pGpm','pHeadFt','pImpDiam','pBhp','pNol','pNpshr','pEff','shutoffFactor','runoutFactor'].forEach(id=>{
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('input', readDutyPoint);
+});
+
+function getMotor(){
+  const hp = parseFloat(document.getElementById('mHp').value);
+  const v = parseFloat(document.getElementById('mV').value);
+  const a = parseFloat(document.getElementById('mA').value);
+  const rpm = parseFloat(document.getElementById('mRpm').value);
+  const hz = parseFloat(document.getElementById('mHz').value);
+  const eff = parseFloat(document.getElementById('mEff').value);
+  const phase = parseInt(document.getElementById('mPhase').value, 10) || 3;
+  const phaseFactor = phase===1 ? 1 : Math.sqrt(3);
+  const noLoadInput = parseFloat(document.getElementById('mNoLoadA').value);
+  // No-load current as a % of rated current is size-dependent — smaller motors run
+  // proportionally higher no-load current, larger motors lower. 60HP-class real-world
+  // feedback: no-load power should land ~1-2 kW, which a flat 35% (any size) overshoots.
+  const noLoadPct = isFinite(hp) ? (hp>50 ? 0.25 : (hp>10 ? 0.35 : 0.50)) : 0.35;
+  const noLoadA = isFinite(noLoadInput) ? noLoadInput : (isFinite(a) ? a*noLoadPct : null);
+  const noLoadPFInput = parseFloat(document.getElementById('mNoLoadPF').value);
+  const noLoadPF = isFinite(noLoadPFInput) ? noLoadPFInput : 0.12;
+  const noLoadKwInput = parseFloat(document.getElementById('mNoLoadKw').value);
+  const ratedKw = isFinite(hp) ? hp*0.7457 : null;
+
+  // Preferred method: P = phaseFactor × V × I_noload × cosφ0 — phaseFactor is √3 for 3-phase,
+  // 1 for single-phase (P=V×I×PF directly, no √3 term). PF 0.1-0.2 typical range, 0.12 default —
+  // recalibrated against a real reading for this motor class (60HP 3-phase no-load ≈ 1-2 kW).
+  // Fallback: derive from nameplate rated efficiency (P_in = P_out/eff) when V or no-load
+  // current aren't available — no-load losses (core+F&W, no I²R) assumed ~45% of total
+  // full-load loss budget. This tends to read lower since it excludes I²R entirely.
+  let noLoadKwDefault = null;
+  if(isFinite(v) && isFinite(noLoadA)){
+    noLoadKwDefault = (phaseFactor * v * noLoadA * noLoadPF) / 1000;
+  } else if(isFinite(eff) && eff>0 && eff<100 && isFinite(ratedKw)){
+    const totalLossFullLoad = ratedKw * (100/eff - 1);
+    noLoadKwDefault = totalLossFullLoad * 0.45;
+  } else if(isFinite(ratedKw)){
+    noLoadKwDefault = ratedKw * 0.08;
+  }
+  const noLoadKw = isFinite(noLoadKwInput) ? noLoadKwInput : noLoadKwDefault;
+  if(!isFinite(hp) || !isFinite(a) || !isFinite(hz)) return null;
+  return {hp, v, a, rpm, hz, eff, phase, noLoadA, noLoadKw, noLoadPF};
+}
+
+function useMotorHzAsBase(){
+  const m = getMotor();
+  if(!m){ setStatus('Enter motor HP, current and frequency first.', true); return; }
+  document.getElementById('baseFreq').value = m.hz;
+  setStatus('Base frequency set to motor rated frequency ('+m.hz+' Hz).');
+}
+
+function clearMotor(){
+  ['mHp','mV','mA','mRpm','mEff','mNoLoadA','mNoLoadKw','mNoLoadPF'].forEach(id=>{
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('mHz').value = '60';
+  document.getElementById('mPhase').value = '3';
+  // Clear any red-border warnings on the motor fields too, since they're now
+  // intentionally blank rather than left in a stale invalid state.
+  ['mHp','mV','mA','mRpm','mHz'].forEach(id=>{
+    document.getElementById(id).style.borderColor = '';
+  });
+  renderMotorSummary();
+  setStatus('Motor nameplate cleared.');
+}
+
+function renderMotorSummary(){
+  const m = getMotor();
+  const el = document.getElementById('motorSummary');
+  if(!m){
+    el.textContent = 'No motor loaded — current-estimate row will be omitted.';
+    return;
+  }
+  const ratedKw = (m.hp * 0.7457).toFixed(2);
+  const phaseLabel = m.phase===1 ? '1ph' : '3ph';
+  const method = (isFinite(m.v) && isFinite(m.noLoadA)) ? `${m.phase===1?'':'√3×'}V×I_noload×${m.noLoadPF} PF (${phaseLabel})` : (isFinite(m.eff) ? `from ${m.eff}% nameplate efficiency` : `~8% of rated`);
+  el.textContent = `${m.hp} HP (${ratedKw} kW) · ${m.v || '—'} V · ${m.a} A / ${m.noLoadA.toFixed(2)} A no-load · ${m.noLoadKw.toFixed(2)} kW no-load @ rated Hz (${method}, split 60% windage∝N³ + 40% core∝N) · ${m.rpm || '—'} RPM @ ${m.hz} Hz.`;
+}
+['mHp','mV','mA','mRpm','mHz','mEff','mPhase','mNoLoadA','mNoLoadKw','mNoLoadPF'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', renderMotorSummary);
+  document.getElementById(id).addEventListener('change', renderMotorSummary);
+});
+
+// If left blank, writes the computed default straight into the field (not just used
+// invisibly behind the scenes) so it's visible and editable like any other value.
+function fillNoLoadDefaultsIfBlank(){
+  const aEl = document.getElementById('mNoLoadA');
+  const pfEl = document.getElementById('mNoLoadPF');
+  const kwEl = document.getElementById('mNoLoadKw');
+  const a = parseFloat(document.getElementById('mA').value);
+  const v = parseFloat(document.getElementById('mV').value);
+  const hp = parseFloat(document.getElementById('mHp').value);
+  const eff = parseFloat(document.getElementById('mEff').value);
+  const phase = parseInt(document.getElementById('mPhase').value, 10) || 3;
+  const phaseFactor = phase===1 ? 1 : Math.sqrt(3);
+  const ratedKw = isFinite(hp) ? hp*0.7457 : null;
+
+  if(aEl.value.trim()==='' && isFinite(a)){
+    const noLoadPct = isFinite(hp) ? (hp>50 ? 0.25 : (hp>10 ? 0.35 : 0.50)) : 0.35;
+    aEl.value = (a*noLoadPct).toFixed(2);
+  }
+  if(pfEl.value.trim()===''){
+    pfEl.value = '0.12';
+  }
+  if(kwEl.value.trim()===''){
+    const noLoadA = parseFloat(aEl.value);
+    const noLoadPF = parseFloat(pfEl.value);
+    let kw = null;
+    if(isFinite(v) && isFinite(noLoadA)){
+      kw = (phaseFactor * v * noLoadA * noLoadPF) / 1000;
+    } else if(isFinite(eff) && eff>0 && eff<100 && isFinite(ratedKw)){
+      kw = ratedKw * (100/eff - 1) * 0.45;
+    } else if(isFinite(ratedKw)){
+      kw = ratedKw * 0.08;
+    }
+    if(kw!==null) kwEl.value = kw.toFixed(2);
+  }
+  renderMotorSummary();
+}
+['mNoLoadA','mNoLoadPF','mNoLoadKw'].forEach(id=>{
+  document.getElementById(id).addEventListener('blur', fillNoLoadDefaultsIfBlank);
+});
+
+function setStatus(msg, isErr){
+  const s = document.getElementById('status');
+  s.textContent = msg;
+  s.className = 'status' + (isErr?' err':'');
+}
+
+const REQUIRED_FIELDS = {
+  tag: 'Tag / Quote #',
+  pModel: 'Model',
+  pGpm: 'GPM',
+  pHeadFt: 'Head (ft)',
+  pImpDiam: 'Imp Diam',
+  pBhp: 'BHP',
+  pNol: 'NOL',
+  pNpshr: 'NPSHR',
+  pEff: 'Efficiency',
+  mHp: 'Rated Power (HP)',
+  mV: 'Rated Voltage (V)',
+  mA: 'Rated Current (A)',
+  mRpm: 'Rated Speed (RPM)',
+  mHz: 'Rated Frequency (Hz)'
+};
+
+// Fields where the value must be numeric and greater than zero — "0" is just as
+// invalid as blank for these (a GPM, BHP, Voltage, etc. of zero is meaningless).
+// tag and pModel are free text, so any non-empty string is acceptable for those.
+const NUMERIC_REQUIRED_FIELDS = new Set(['pGpm','pHeadFt','pImpDiam','pBhp','pNol','pNpshr','pEff','mHp','mV','mA','mRpm','mHz']);
+
+// Fields styled with border:none as part of the borderless spreadsheet-cell table
+// (Base Curve Input) — setting borderColor on these has no visible effect since there's
+// no border to color, so they get a background highlight instead when invalid.
+const BORDERLESS_FIELDS = new Set(['pModel','pGpm','pHeadFt','pImpDiam','pBhp','pNol','pNpshr','pEff']);
+
+// Checks every required field; highlights each invalid one (red border for normal
+// inputs, red background for the borderless table-style ones) and returns the list
+// of missing/invalid labels so the caller can show a clear warning.
+function checkRequiredFields(){
+  const missing = [];
+  for(const [id, label] of Object.entries(REQUIRED_FIELDS)){
+    const el = document.getElementById(id);
+    if(!el) continue;
+    const raw = el.value.trim();
+    let isInvalid = raw==='';
+    if(!isInvalid && NUMERIC_REQUIRED_FIELDS.has(id)){
+      const n = parseFloat(raw);
+      isInvalid = !isFinite(n) || n<=0;
+    }
+    if(BORDERLESS_FIELDS.has(id)){
+      el.style.backgroundColor = isInvalid ? '#fde4e1' : '';
+    } else {
+      el.style.borderColor = isInvalid ? '#d0432f' : '';
+    }
+    if(isInvalid) missing.push(label);
+  }
+  return missing;
+}
+
+function generate(){
+  const missingFields = checkRequiredFields();
+  if(missingFields.length){
+    setStatus('Missing required field(s): '+missingFields.join(', ')+'.', true);
+    return;
+  }
+  fillNoLoadDefaultsIfBlank();
+  const baseFreq = parseFloat(document.getElementById('baseFreq').value);
+  const freqStr = document.getElementById('targetFreqs').value;
+  const freqs = freqStr.split(',').map(s=>parseFloat(s.trim())).filter(n=>isFinite(n));
+  const base = computeBaseCurvePoints(); // {flow:[10], head:[10], power:[10]} at baseFreq, shutoff -> runout
+
+  if(!isFinite(baseFreq) || baseFreq<=0){ setStatus('Enter a valid base frequency.', true); return; }
+  if(!base.flow.some(v=>v>0)){ setStatus('Enter GPM, Head and BHP above to define the base curve.', true); return; }
+  if(freqs.length===0){ setStatus('Enter at least one target frequency.', true); return; }
+
+  const motor = getMotor();
+  const motorRatedKw = motor ? motor.hp * 0.7457 : null;
+
+  generated = freqs.map(f=>{
+    const r = f / baseFreq;
+    const flow  = base.flow.map(v=>+(v * r        ).toFixed(3));
+    const head  = base.head.map(v=>+(v * r * r     ).toFixed(3));
+    let power = base.power.map(v=>+(v * r * r * r ).toFixed(3));
+    // Floor: the motor draws its own no-load power (friction/windage/iron losses) regardless
+    // of how light the hydraulic load is. This is split into two physically distinct terms
+    // rather than one flat percentage scaled linearly:
+    //  - Windage & friction: mechanical, dominant term, scales with speed cubed (~60% of total no-load loss)
+    //  - Core (iron) losses: roughly linear with frequency at constant V/Hz (~40% of total)
+    // Scaled against the motor's own rated Hz (not the pump curve's base frequency), since this
+    // is a motor characteristic, not a hydraulic one. This drops off correctly at low speed
+    // instead of a flat/linear floor dominating the whole row.
+    if(motor){
+      const rMotor = f / motor.hz;
+      const windage = motor.noLoadKw * 0.6 * Math.pow(rMotor, 3);
+      const core    = motor.noLoadKw * 0.4 * rMotor;
+      const noLoadFloorAtF = windage + core;
+      power = power.map(v=>+(Math.max(v, noLoadFloorAtF)).toFixed(3));
+    }
+    let current = null;
+    if(motor){
+      // Vector-sum model: total current = sqrt(no-load² + (active component)²).
+      // Active component is derived from rated current & no-load current (not assumed),
+      // so the curve matches nameplate current exactly at 100% load and no-load current at 0% —
+      // and stays realistically concave in between, unlike a straight linear blend vs. power.
+      const iActiveRated = Math.sqrt(Math.max(motor.a*motor.a - motor.noLoadA*motor.noLoadA, 0));
+      current = power.map(kw=>{
+        const loadFraction = kw / motorRatedKw;
+        const iActive = iActiveRated * loadFraction;
+        return +Math.sqrt(motor.noLoadA*motor.noLoadA + iActive*iActive).toFixed(2);
+      });
+    }
+    return { hz:f, flow, head, power, current, overspeed: motor ? f > motor.hz : false };
+  });
+
+  renderGenerated(motor);
+  renderFlags(motor);
+  setStatus(`Generated ${freqs.length} frequency curves, 10 points each (shutoff → runout).`);
+}
+
+function renderFlags(motor){
+  const el = document.getElementById('flags');
+  el.innerHTML = '';
+  if(!motor){ return; }
+  const over = generated.filter(g=>g.overspeed);
+  if(over.length){
+    const d = document.createElement('div');
+    d.className = 'flag';
+    d.textContent = `⚠ ${over.map(g=>g.hz+'Hz').join(', ')} exceed the motor's rated frequency (${motor.hz} Hz) — constant-power / field-weakening region, verify motor and drive are rated for this range.`;
+    el.appendChild(d);
+  }
+  const overload = generated.some(g=> g.current && g.current.some(c=>c > motor.a));
+  if(overload){
+    const d = document.createElement('div');
+    d.className = 'flag danger';
+    d.textContent = `⚠ Estimated current exceeds motor nameplate rating (${motor.a} A) at one or more points — highlighted in the table below.`;
+    el.appendChild(d);
+  }
+}
+
+function renderGenerated(motor){
+  const numCols = generated.length ? generated[0].flow.length : 1;
+  document.getElementById('colHeaders').colSpan = numCols;
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  if(generated.length===0){
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">Enter a base curve above and click "Generate curve table".</td></tr>';
+    return;
+  }
+  generated.forEach(grp=>{
+    const rowTypes = motor ? ['flow','head','power','current'] : ['flow','head','power'];
+    rowTypes.forEach((type, ri)=>{
+      const tr = document.createElement('tr');
+      if(ri===0) tr.className='group-start';
+      if(ri===0){
+        const hzTd = document.createElement('td');
+        hzTd.className='hzcell' + (grp.overspeed ? ' overspeed' : '');
+        hzTd.rowSpan = rowTypes.length;
+        hzTd.textContent = grp.hz.toFixed(2);
+        tr.appendChild(hzTd);
+      }
+      const typeTd = document.createElement('td');
+      typeTd.className='rowtype '+type;
+      typeTd.textContent = type==='flow'?'Flow':type==='head'?'Head':type==='power'?'Power':'Est. Current';
+      tr.appendChild(typeTd);
+
+      const unitTd = document.createElement('td');
+      unitTd.textContent = type==='flow'?'GPM':type==='head'?'PSI':type==='power'?'kW':'A';
+      tr.appendChild(unitTd);
+
+      const arr = type==='current' ? grp.current : grp[type];
+      arr.forEach(v=>{
+        const td = document.createElement('td');
+        td.className = 'val '+type + ((type==='current' && motor && v>motor.a) ? ' overload' : '');
+        td.textContent = v;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  });
+}
+
+function clearAll(){
+  document.getElementById('tag').value='';
+  document.getElementById('baseFreq').value='60';
+  document.getElementById('targetFreqs').value='20,25,30,35,40,45,50,55,60';
+  pumpSheet = {model:'', gpm:'', headFt:'', impDiam:'', bhp:'', nol:'', npshr:'', eff:''};
+  document.getElementById('shutoffFactor').value = '1.20';
+  document.getElementById('runoutFactor').value = '1.00';
+  renderDutyPoint();
+  generated = [];
+  renderGenerated(null);
+  document.getElementById('flags').innerHTML='';
+  setStatus('');
+}
+
+function exportCsv(){
+  if(generated.length===0){ setStatus('Nothing to export — generate a table first.', true); return; }
+  const tagRaw = document.getElementById('tag').value.trim() || 'pump';
+  const recordId = '1';
+  const motor = getMotor();
+  const today = new Date();
+  const dateStr = String(today.getDate()).padStart(2,'0')+'.'+String(today.getMonth()+1).padStart(2,'0')+'.'+today.getFullYear();
+
+  const motorPower = motor ? `${motor.hp}HP/${motor.v||''}V` : '';
+  const size = pumpSheet.impDiam || '';
+
+  let lines = [];
+  // Table 1: pump registry, same shape as the source export
+  lines.push('20;"id";"series";"version";"size";"motor_power";"manufacturer";"description";"power_unit";"head_unit";"flow_unit";"type";"user";"modified_date"');
+  lines.push(`2;${recordId};"${tagRaw}";"1";"${size}";"${motorPower}";"";"";"kW";"psi";"GPM";"";"Technicien";"${dateStr}"`);
+
+  // Table 2: curve points, same shape as the source export
+  lines.push('30;"pump_id";"frequency";"power";"head";"flow"');
+  generated.forEach(g=>{
+    for(let c=0;c<g.flow.length;c++){
+      lines.push(`3;${recordId};${g.hz};${g.power[c]};${g.head[c]};${g.flow[c]}`);
+    }
+  });
+
+  const blob = new Blob([lines.join('\r\n') + '\r\n'], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sensorless_-_curve_gen_'+tagRaw+'.csv';
+  a.click();
+}
+
+Object.keys(REQUIRED_FIELDS).forEach(id=>{
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('input', ()=>{
+    const raw = el.value.trim();
+    let ok = raw!=='';
+    if(ok && NUMERIC_REQUIRED_FIELDS.has(id)){
+      const n = parseFloat(raw);
+      ok = isFinite(n) && n>0;
+    }
+    if(ok){
+      if(BORDERLESS_FIELDS.has(id)) el.style.backgroundColor='';
+      else el.style.borderColor='';
+    }
+  });
+});
+
+renderDutyPoint();
+renderMotorSummary();
+</script>
+</body>
+</html>
